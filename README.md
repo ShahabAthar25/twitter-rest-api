@@ -22,7 +22,7 @@ We will create the vitual enviroment using _virtualenv_ package. Feel free to us
 # using pip
 pip install virtualenv
 
-# using pacman
+# Using pacman (If you use arch you rock!!!)
 sudo pacman -Sy python-virtualenv
 ```
 
@@ -53,9 +53,6 @@ We need to setup the .env file in order to access our secret key which is stored
 ```bash
 # copy .env.template file to .env
 cp .env.template .env
-
-# Rename .env.template to .env
-mv .env.template .env
 ```
 
 Now, all you need to do is set your **SECRET_KEY** in the **.env** file. To generate a secret key open the python shell by running the following command
