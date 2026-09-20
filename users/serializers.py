@@ -8,8 +8,6 @@ from .models import Bookmark, User
 
 
 class UserSerializer(serializers.ModelSerializer):
-    followers = serializers.SerializerMethodField("get_followers")
-    following = serializers.SerializerMethodField("get_following")
 
     class Meta:
         model = User
@@ -22,15 +20,9 @@ class UserSerializer(serializers.ModelSerializer):
             "profile_pic",
             "bio",
             "website",
-            "followers",
-            "following",
+            "followers_count",
+            "following_count",
         )
-
-    def get_followers(self, obj):
-        return getattr(obj, "_followers_count", obj.followers.count())
-
-    def get_following(self, obj):
-        return getattr(obj, "_following_count", obj.following.count())
 
 
 class RegisterationSerializer(serializers.ModelSerializer):

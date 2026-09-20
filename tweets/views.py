@@ -73,16 +73,9 @@ class TweetViewSet(ModelViewSet):
                 )
             )
             .order_by("-is_followed", "-created_at")
-            .prefetch_related(
-                Prefetch(
-                    "owner",
-                    queryset=User.objects.annotate(
-                        _followers_count=Count("followers", distinct=True),
-                        _following_count=Count("following", distinct=True),
-                    ),
-                )
-            )
+            .select_related("owner")
         )
+
         queryset = self.filter_queryset(queryset)
         page = self.paginate_queryset(queryset)
 
