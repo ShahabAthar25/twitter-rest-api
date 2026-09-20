@@ -1,17 +1,19 @@
 from datetime import timedelta
 
 from django.core.cache import cache
-from django.db.models import Case, Exists, IntegerField, OuterRef, Value, When
+from django.db.models import (Case, Count, Exists, IntegerField, OuterRef,
+                              Prefetch, Value, When)
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
+from django_redis import get_redis_connection
 from rest_framework import generics, status
 from rest_framework.exceptions import ParseError
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
-from users.models import UserFollowing
+from users.models import User, UserFollowing
 
 from .models import Reply, Tweet
 from .permissions import IsOwnerOrReadonly, TweetReplyPermissions
@@ -24,6 +26,21 @@ class TweetViewSet(ModelViewSet):
     permission_classes = (TweetReplyPermissions,)
     lookup_field = "pk"
 
+    def _incr_view_cache(self, obj_ids, dirty_list_key):
+        if not obj_ids:
+            return
+
+        conn = get_redis_connection("default")
+
+        pipe = conn.pipeline()
+
+        for result_id in obj_ids:
+            pipe.incr(f"tweet:{result_id}:views")
+
+        pipe.sadd(dirty_list_key, *obj_ids)
+
+        pipe.execute()
+
     def list(self, request, *args, **kwargs):
         user_id = request.user.id
         page_num = request.query_params.get("page", 1)
@@ -32,15 +49,14 @@ class TweetViewSet(ModelViewSet):
 
         cached_data = cache.get(cache_key)
         if cached_data:
-            results = cached_data.get("results", {})
+            if isinstance(cached_data, dict):
+                results = cached_data.get("results", [])
+            else:
+                results = cached_data
+
             tweet_ids = [tweet["id"] for tweet in results if "id" in tweet]
 
-            view_keys = {f"tweet:{tid}:views": 1 for tid in tweet_ids}
-            cache.incr_many(view_keys)
-
-            dirty_set = cache.get(dirty_tweets_key, set())
-            dirty_set.update(tweet_ids)
-            cache.set(dirty_tweets_key, dirty_set, timeout=None)
+            self._incr_view_cache(tweet_ids, dirty_tweets_key)
 
             return Response(cached_data, status=status.HTTP_200_OK)
 
@@ -48,7 +64,7 @@ class TweetViewSet(ModelViewSet):
             follower=request.user, followed=OuterRef("owner")
         )
 
-        queryset = queryset = (
+        queryset = (
             Tweet.objects.annotate(
                 is_followed=Case(
                     When(Exists(is_following_subquery), then=Value(1)),
@@ -57,24 +73,26 @@ class TweetViewSet(ModelViewSet):
                 )
             )
             .order_by("-is_followed", "-created_at")
-            .select_related("owner")
+            .prefetch_related(
+                Prefetch(
+                    "owner",
+                    queryset=User.objects.annotate(
+                        _followers_count=Count("followers", distinct=True),
+                        _following_count=Count("following", distinct=True),
+                    ),
+                )
+            )
         )
-
-        self.filter_queryset(queryset)
+        queryset = self.filter_queryset(queryset)
         page = self.paginate_queryset(queryset)
 
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             paginated_response = self.get_paginated_response(serializer.data)
 
-            tweet_ids = paginated_response.get("results", [])
+            tweet_ids = [tweet.get("id") for tweet in serializer.data]
 
-            view_keys = {f"tweet:{tid}:views": 1 for tid in tweet_ids}
-            cache.incr_many(view_keys)
-
-            dirty_set = cache.get(dirty_tweets_key, set())
-            dirty_set.update(tweet_ids)
-            cache.set(dirty_tweets_key, dirty_set, timeout=None)
+            self._incr_view_cache(tweet_ids, dirty_tweets_key)
 
             # Caching for only 1 minute as this is the user feed and needs updates frequently
             cache.set(cache_key, paginated_response.data, timeout=60)
@@ -84,14 +102,9 @@ class TweetViewSet(ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         data = serializer.data
 
-        tweet_ids = paginated_response.get("results", [])
+        tweet_ids = [tweet.get("id") for tweet in serializer.data]
 
-        view_keys = {f"tweet:{tid}:views": 1 for tid in tweet_ids}
-        cache.incr_many(view_keys)
-
-        dirty_set = cache.get(dirty_tweets_key, set())
-        dirty_set.update(tweet_ids)
-        cache.set(dirty_tweets_key, dirty_set, timeout=None)
+        self._incr_view_cache(tweet_ids, dirty_tweets_key)
 
         cache.set(cache_key, data, timeout=300)
         return Response(data, status=status.HTTP_200_OK)

@@ -8,6 +8,7 @@ dependencies = [
     "asgiref==3.8.1",
     "celery>=5.6.3",
     "django==5.0.6",
+    "django-redis>=6.0.0",
     "djangorestframework==3.15.1",
     "djangorestframework-simplejwt==5.3.1",
     "drf-nested-routers==0.94.1",
