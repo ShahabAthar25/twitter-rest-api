@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -87,9 +88,15 @@ class UsersAppTests(APITestCase):
     def test_retrieve_profile(self):
         url = reverse("retrieve-update-user")
         self.authenticate_user1()
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["username"], self.user1.username)
+        # Cache miss. 1 auth query (Data comes from auth query i.e. IsAuthenticated)
+        with self.assertNumQueries(1):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.data["username"], self.user1.username)
+
+        # Cahce hitL 1 auth query (Data comes from cache)
+        with self.assertNumQueries(1):
+            response = self.client.get(url)
 
     def test_update_profile(self):
         url = reverse("retrieve-update-user")

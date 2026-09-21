@@ -41,7 +41,7 @@ class TweetTests(APITestCase):
         url = reverse("tweets-list")
 
         # First request: Cache miss -> Hits database
-        with self.assertNumQueries(2):  # One from DRF and other is the main query.
+        with self.assertNumQueries(1):
             response_1 = self.client.get(url)
             self.assertEqual(response_1.status_code, status.HTTP_200_OK)
 
